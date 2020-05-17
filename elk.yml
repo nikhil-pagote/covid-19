@@ -1,0 +1,180 @@
+---
+    version: "2.2"
+    #version: "3.8"
+    services:
+    
+      # Elasticsearch cluster. localhost 9200 (ensure this is open on host) --> container 9200
+      # For simplicity, running only a single node here
+      # To run multiple nodes on single machines: https://discuss.elastic.co/t/can-i-run-multiple-elasticsearch-nodes-on-the-same-machine/67
+      elasticsearch:
+        container_name: elasticsearch
+        hostname: elasticsearch
+        image: "docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}"
+        environment:
+          - cluster.name=es-cluster
+          - node.name=es-node-1
+          - path.data=/usr/share/elasticsearch/data
+          - http.port=9200
+          - http.host=0.0.0.0
+          - transport.host=127.0.0.1
+          - discovery.type=single-node
+          - http.cors.enabled=true
+          - http.cors.allow-origin=http://localhost:1358,http://127.0.0.1:1358,http://http://192.168.0.110:1358
+          - http.cors.allow-headers=X-Requested-With,X-Auth-Token,Content-Type,Content-Length,Authorization
+          - http.cors.allow-credentials=true
+          - bootstrap.memory_lock=true
+          - "ES_JAVA_OPTS=-Xms${ES_JVM_HEAP} -Xmx${ES_JVM_HEAP}"
+        mem_limit: ${ES_MEM_LIMIT}
+        ulimits:
+          memlock:
+            soft: -1
+            hard: -1
+        volumes:
+          # ES data dir mount to local drive
+          - ${ES_MOUNT_DRIVE}:/usr/share/elasticsearch/data
+        ports:
+          - '9200:9200'
+          - '9300:9300'
+        # Internal network for the containers
+        networks:
+          - 'elk_stack'
+        # Health check to confirm availability of ES. Other containers wait on this.
+        healthcheck:
+          test: ["CMD", "curl","-s" ,"-f", "-u", "elastic:${ES_PASSWORD}", "http://localhost:9200/_cat/health"]
+    
+    
+      ## Kibana container. localhost 5601 (ensure this is open on host) --> container 5601
+      #kibana:
+      #  container_name: kibana
+      #  hostname: kibana
+      #  image: "docker.elastic.co/kibana/kibana:${ELASTIC_VERSION}"
+      #  environment:
+      #    - "ELASTICSEARCH_PASSWORD=${ES_PASSWORD}"
+      #    - server.port=127.0.0.1:5601
+      #    - elasticsearch.url="http://elasticsearch:9200"
+      #    - server.name="kibana"
+      #  ports:
+      #    - '5601:5601'
+      #  # Health check to confirm availability of Kibana
+      #  healthcheck:
+      #        test: ["CMD", "curl", "-s", "-f", "http://localhost:5601/login"]
+      #        retries: 6
+      #  # Internal network for the containers
+      #  networks:
+      #    - 'elk_stack'
+      #  # We don't start Kibana until the ES instance is ready
+      #  depends_on:
+      #    - 'elasticsearch'
+      
+      # Graphana container. localhost 3000 (ensure this is open on host) --> container 3000
+      grafana:
+        container_name: grafana
+        hostname: grafana
+        image: "grafana/grafana"
+        environment:
+          - "ELASTICSEARCH_PASSWORD=${ES_PASSWORD}"
+          - server.port=127.0.0.1:3000
+          - elasticsearch.url="http://elasticsearch:9200"
+          - server.name="grafana"
+          - "GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,grafana-worldmap-panel"
+        ports:
+          - '3000:3000'
+        # Health check to confirm availability of Kibana
+        healthcheck:
+              test: ["CMD", "curl", "-s", "-f", "http://localhost:3000/login"]
+              retries: 6
+        # Internal network for the containers
+        networks:
+          - 'elk_stack'
+        # We don't start Kibana until the ES instance is ready
+        depends_on:
+          - 'elasticsearch'
+            
+      ## Logstash container. localhost 9600 (ensure this is open on host) --> container 9600
+      #logstash:
+      #  container_name: logstash
+      #  hostname: logstash
+      #  image: "docker.elastic.co/logstash/logstash:${ELASTIC_VERSION}"
+      #  environment:
+      #    - "ELASTICSEARCH_PASSWORD=${ES_PASSWORD}"
+      #    - server.port=127.0.0.1:5601
+      #    - elasticsearch.url="http://elasticsearch:9200"
+      #    - server.name="kibana"
+      #  ports:
+      #    - "5000:5000/tcp"
+      #    - "5000:5000/udp"
+      #    - "9600:9600"
+      #  #volumes:
+      #  #  - "./logstash.conf:/usr/share/logstash/pipeline/logstash.conf"
+      #  restart: always
+      #  environment:
+      #    LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+      #  # Health check to confirm availability of Kibana
+      #  healthcheck:
+      #    test: ["CMD", "bin/logstash", "-t"]
+      #    interval: 60s
+      #    timeout: 50s
+      #    retries: 5
+      #  # Internal network for the containers
+      #  networks:
+      #    - 'elk_stack'
+      #  # We don't start Kibana until the ES instance is ready
+      #  depends_on:
+      #    - 'elasticsearch'
+
+          
+      ## Configure Stack container. This short lived container configures the stack once Kibana and Elasticsearch
+      ## are available. More specifically, using a script it sets passwords, import dashboards,
+      ## sets a default index pattern, loads templates and pipelines
+      #configure_stack:
+      #  container_name: configure_stack
+      #  image: docker.elastic.co/beats/metricbeat:${ELASTIC_VERSION}
+      #  # Configure the container env so that the script can use the config settings
+      #  environment:
+      #    - 'ELASTIC_VERSION=${ELASTIC_VERSION}'
+      #    - 'ES_PASSWORD=${ES_PASSWORD}'
+      #    - 'ES_DEFAULT_INDEX_PATTERN=${ES_DEFAULT_INDEX_PATTERN}'
+      #  volumes:
+      #    - './init/configure-stack.sh:/usr/local/bin/configure-stack.sh:ro'
+      #  command: ['/bin/bash', '-c', 'cat /usr/local/bin/configure-stack.sh | tr -d "\r" | bash']
+      #  # Internal network for the containers
+      #  networks:
+      #    - 'elk_stack'
+      #  # Wait for ES, Kibana to come up before stack config
+      #  depends_on:
+      #    - 'elasticsearch'
+      #    - 'kibana'
+      #    - 'logstash'
+    
+
+
+
+    ## dejavu container. localhost 1358 (ensure this is open on host) --> container 1358
+    #dejavu:
+    #  container_name: dejavu
+    #  hostname: dejavu
+    #  image: "appbaseio/dejavu"
+    #  environment:
+    #    - "ELASTICSEARCH_PASSWORD=${ES_PASSWORD}"
+    #  ports:
+    #    - '1358:1358'
+    #  # link container to communicate without IP address
+    #  links:
+    #    - elasticsearch
+    #  # Internal network for the containers
+    #  networks:
+    #    - 'elk_stack'
+    #  # We don't start Kibana until the ES instance is ready
+    #  depends_on:
+    #    - 'elasticsearch'
+    
+    # network connectors used in the docker env
+    networks:
+      elk_stack:
+          driver: bridge
+          ipam:
+            driver: default
+            config:
+            # default docker compose subnet(172.177.0.0/16), which may overlap with existing services on home network.
+            # use this configuration to update to a different subnet
+            - subnet: 192.168.1.0/24
