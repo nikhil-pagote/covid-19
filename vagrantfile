@@ -11,38 +11,44 @@ Vagrant.configure("2") do |config|
 	# config.vm.synced_folder "../data", "/vagrant_data"
 ###############################################################################
 	config.vm.define :covid19 do |covid19_config|
-			covid19_config.vm.synced_folder ".", "/vagrant", type: "virtualbox"
-			covid19_config.vm.box = "centos/8"
-			covid19_config.vm.box_url = "http://cloud.centos.org/centos/8/x86_64/images/CentOS-8-Vagrant-8.1.1911-20200113.3.x86_64.vagrant-virtualbox.box"
-			covid19_config.vm.host_name = "covid19"
-			covid19_config.vm.provider :virtualbox do |vb|
+		covid19_config.vm.synced_folder ".", "/vagrant", type: "virtualbox"
+		covid19_config.vm.box = "centos/8"
+		covid19_config.vm.box_url = "http://cloud.centos.org/centos/8/x86_64/images/CentOS-8-Vagrant-8.1.1911-20200113.3.x86_64.vagrant-virtualbox.box"
+		covid19_config.vm.host_name = "covid19"
+		covid19_config.vm.provider :virtualbox do |vb|
 			vb.name = "COVID19_VM"
 			vb.customize ["modifyvm", :id, "--memory", "4096"]
 			vb.customize ["modifyvm", :id, "--cpus", "2"]
 		end
 		covid19_config.vm.provision "shell", inline: <<-SHELL
-			dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo
-			yum update -y
-			yum upgrade -y
-			yum install -y net-tools wget vim epel-release kernel-headers
 			yum install -y python36.x86_64 python36-devel.x86_64
 			/usr/bin/python3 -m pip install --upgrade pip
 			/usr/bin/python3 -m pip install virtualenv
-			wget https://download.docker.com/linux/centos/7/x86_64/stable/Packages/containerd.io-1.2.6-3.3.el7.x86_64.rpm
-			yum locainstall - y containerd.io-1.2.6-3.3.el7.x86_64.rpm
-			yum install -y docker-ce
+			grep elk_venv /home/vagrant/.bashrc
+			if [ $? -ne 0 ]; then
+			cd /vagrant
+			/usr/bin/python3 -m venv elk_venv
+			echo "source /vagrant/elk_venv/bin/activate" >> /home/vagrant/.bashrc
+			fi
+			dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo
+			yum install https://download.docker.com/linux/centos/7/x86_64/stable/Packages/containerd.io-1.2.6-3.3.el7.x86_64.rpm -y
+			curl -fsSL https://get.docker.com/ | sh
+			usermod -aG docker vagrant
 			systemctl enable docker; systemctl restart docker
-			#grep troposphere_venv /home/vagrant/.bashrc
-			#if [ $? -ne 0 ]; then
-			#echo "/usr/bin/python3 -m venv troposphere_venv" >> /home/vagrant/.bashrc
-			#echo "source troposphere_venv/bin/activate" >> /home/vagrant/.bashrc
-			#reboot
-			#fi
-		SHELL
+			if [ ! -f "/usr/local/bin/docker-compose" ]; then
+			curl -L "https://github.com/docker/compose/releases/download/1.25.5/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+			fi
+			chmod +x /usr/local/bin/docker-compose
+			grep "elk.yml" /home/vagrant/.bashrc
+			if [ $? -ne 0 ]; then
+			echo "/usr/local/bin/docker-compose -f /vagrant/elk.yml up -d" >> /home/vagrant/.bashrc
+			fi
+			SHELL
 	end
 ###############################################################################
-	# config.vm.provision "shell", inline: <<-SHELL
-	#   apt-get update
-	#   apt-get install -y apache2
-	# SHELL
+	config.vm.provision "shell", inline: <<-SHELL
+		yum update -y
+		yum upgrade -y
+		yum install -y net-tools wget vim epel-release kernel-headers
+		SHELL
 end
